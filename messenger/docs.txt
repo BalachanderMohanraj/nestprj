@@ -1,0 +1,27 @@
+1. Database & Infrastructure Layer
+Prisma 7 Setup: Configured the schema.prisma with a User model and established a connection to your PostgreSQL database.
+
+Driver Adapter: Integrated @prisma/adapter-pg to allow Prisma 7 to use the native pg driver for better performance.
+
+Data Seeding: Successfully executed a seed script that populated your database with initial test users (alice_wonder, builder_bob).
+
+Environment Management: Fixed a SASL authentication error by ensuring environment variables are loaded correctly using dotenv.
+
+2. NestJS Core & Shared Layer
+Prisma Module: Created a global-ready PrismaModule and PrismaService that manages the database connection.
+
+Dependency Injection: Exported the PrismaService so it can be injected into any other module (like Users, Conversations, etc.) without re-initializing the connection.
+
+3. GraphQL API Layer (Code-First)
+Apollo Server Configuration: Set up the GraphQLModule in the AppModule to automatically generate the schema.gql file.
+
+Object Types (Models): Defined the User model with decorators, including a fix for TypeScript strict property initialization using the ! operator.
+
+Input Types: Created a CreateUserInput DTO to handle data sent from the client during mutations.
+
+4. Domain Layer (Users Module)
+Resolvers: Implemented the UsersResolver which handles:
+
+Queries: A users query to fetch all users from the database.
+
+Mutations: A createUser mutation to add new users via GraphQL.
