@@ -1,0 +1,3 @@
+naming conventions changed 
+access of secret key and expiry via env file
+testing for user -- services and resolver done

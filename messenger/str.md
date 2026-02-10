@@ -1,3 +1,5 @@
+its a modular monolith
+
 src/
 ├── modules/
 │   ├── auth/           # Identity & JWT logic
@@ -13,6 +15,3 @@ src/
 
 we kept users authentication and jwt inside users 
 
-
-5dfc1370-bb1b-44a8-a3b0-cf097e66e29b  --bala
-9b7d8f83-6c02-4f49-8f03-1526f17f17d8  --preethi

@@ -1,7 +1,7 @@
 // src/modules/users/dto/register.input.ts
 import { InputType, Field } from '@nestjs/graphql';
 import { IsEmail, IsNotEmpty, IsOptional, IsString, IsStrongPassword, MinLength } from 'class-validator';
-
+// data backend recieve from client
 @InputType()
 export class RegisterInput {
   @Field()
@@ -38,7 +38,7 @@ export class RegisterInput {
   @MinLength(8)
   @IsStrongPassword()
   password!: string;
-
+// dob
   @Field()
   @IsString()
   @IsNotEmpty() // This "whitelists" confirmPassword so the pipe accepts it
