@@ -1,3 +1,22 @@
 naming conventions changed 
 access of secret key and expiry via env file
-testing for user -- services and resolver done
+unit testing for user,chat,auth -- services and resolver done
+Core business logic --✅ UsersService,✅ ChatService
+GraphQL layer --✅ UsersResolver,✅ ChatResolver
+Authentication internals --✅ GqlAuthGuard,✅ JwtStrategy
+
+Existing logic  to firebase
+
+POST login(email, password)
+→ backend verifies password
+→ backend signs JWT using JWT_SECRET
+→ returns accessToken (your JWT)
+→ guards verify JWT_SECRET
+
+
+POST login(email, password)
+→ backend authenticates user with Firebase
+→ Firebase issues ID token (signed by Google)
+→ backend bumps tokenVersion + sets Firebase custom claim
+→ backend returns accessToken = Firebase ID token
+→ guards verify token using firebase-admin

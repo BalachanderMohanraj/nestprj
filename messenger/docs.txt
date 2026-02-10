@@ -25,3 +25,28 @@ Resolvers: Implemented the UsersResolver which handles:
 Queries: A users query to fetch all users from the database.
 
 Mutations: A createUser mutation to add new users via GraphQL.
+
+
+
+
+
+
+
+
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyAGrlP5NSYU_DcsBxB3CepAOOARTDXInLs",
+  authDomain: "user-authentication-6ca8d.firebaseapp.com",
+  projectId: "user-authentication-6ca8d",
+  storageBucket: "user-authentication-6ca8d.firebasestorage.app",
+  messagingSenderId: "630638231214",
+  appId: "1:630638231214:web:a873373d3ce95f0e2ff73f"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);

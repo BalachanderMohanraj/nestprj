@@ -16,3 +16,4 @@ describe('PrismaService', () => {
     expect(service).toBeDefined();
   });
 });
+// no need unit testing since no business logic is implemented

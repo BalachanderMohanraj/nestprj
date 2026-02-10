@@ -5,9 +5,10 @@ import { ChatResolver } from './chat.resolver';
 import { PrismaModule } from '../../prisma/prisma.module'; // To get PrismaService
 import { AuthModule } from '../auth/auth.module';
 import { ChatGateway } from './chat.gateway';
+import { FirebaseModule } from '../auth/firebase/firebase.module';
 @Module({
   providers: [ChatService, ChatResolver,ChatGateway],
   imports:[PrismaModule, 
-    AuthModule]
+    AuthModule,FirebaseModule]
 })
 export class ChatModule {}

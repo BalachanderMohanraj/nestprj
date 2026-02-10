@@ -25,6 +25,8 @@ model User {
   userName     String        @unique
   messagesSent Message[]
   participants Participant[]
+  firebaseUid String? @unique
+
   @@schema("local_dev")
   @@index([email])
   @@index([userName])
