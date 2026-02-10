@@ -7,7 +7,7 @@ import { AuthResponse } from '../auth/dto/auth-response.model';
 import { LoginInput } from '../auth/dto/login.input';
 import { UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../auth/gql-auth.guard';
-import { UpdateUserInput } from './dto/update-user.input';
+// import { UpdateUserInput } from './dto/update-user.input';
 
 @Resolver(() => User)
 export class UsersResolver {
@@ -19,12 +19,10 @@ export class UsersResolver {
     return this.usersService.findAll();
   }
 
-
   @Mutation(() => User)
   async register(@Args('data') data: RegisterInput) {
     return this.usersService.register(data);
   }
-
 
   @Mutation(() => AuthResponse)
   async login(@Args('data') data: LoginInput) {  // data format for login including auth jwt
@@ -32,8 +30,4 @@ export class UsersResolver {
   }
 
 
-  // @Mutation(() => UpdateUserInput)
-  // async updatefield(@Args('data') data: LoginInput) {
-  //   return this.usersService.login(data);
-  // }
 }

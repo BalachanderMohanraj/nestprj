@@ -17,13 +17,13 @@ export class UsersService {
     // console.log('Password Match:', data.password === data.confirmPassword);
     if (data.password !== data.confirmPassword) {
       throw new BadRequestException('Passwords do not match');
-    }
+    } // check for wxisting user and found throw error
     const existing = await this.prisma.user.findFirst({
       where: {
         OR: [
-          { gmail: data.gmail },
-          { username: data.username },
-          { mobilenumber: data.mobilenumber },
+          { email: data.email },
+          { userName: data.userName },
+          { mobileNumber: data.mobileNumber },
         ],
       },
     });
@@ -34,6 +34,7 @@ export class UsersService {
     }
     const hashedPassword = await bcrypt.hash(data.password, 10);
     const { confirmPassword, ...userData } = data;
+    // if user not found create
     return this.prisma.user.create({
       data: {
         ...userData,
@@ -42,21 +43,29 @@ export class UsersService {
     });
   }
   async login(data: LoginInput) {
-    // 1. Find user by Gmail
-    const user = await this.prisma.user.findUnique({where: { gmail: data.gmail }})
-    if (!user) {throw new BadRequestException('Invalid credentials')}
-
+    // 1. Find user by email
+    const user = await this.prisma.user.findUnique({
+      where: { email: data.email },
+    });
+    if (!user) {
+      throw new BadRequestException('Invalid credentials');
+    }
     // 2. Compare Passwords
     const isPasswordValid = await bcrypt.compare(data.password, user.password);
-    if (!isPasswordValid) { throw new BadRequestException('Invalid credentials')}
-  
-  // 3. Increment the version in the DB
+    if (!isPasswordValid) {
+      throw new BadRequestException('Invalid credentials');
+    }
+    // 3. Increment the version in the DB
     const updatedUser = await this.prisma.user.update({
-    where: { id: user.id },
-    data: { tokenVersion: { increment: 1 } }
-  });
+      where: { id: user.id },
+      data: { tokenVersion: { increment: 1 } },
+    });
     // 3. Generate JWT
-    const payload = { sub: updatedUser.id, gmail: user.gmail, tokenVersion: updatedUser.tokenVersion };
+    const payload = {
+      sub: updatedUser.id,
+      email: user.email,
+      tokenVersion: updatedUser.tokenVersion,
+    };
     return {
       accessToken: this.jwtService.sign(payload),
       user: updatedUser,

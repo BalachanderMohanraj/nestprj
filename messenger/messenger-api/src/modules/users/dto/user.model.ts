@@ -3,11 +3,11 @@ import { Field, ID, ObjectType } from '@nestjs/graphql';
 @ObjectType()
 export class User {
   @Field() id!: string;
-  @Field() gmail!: string;
-  @Field() username!: string;
-  @Field() fname!: string;
-  @Field({ nullable: true }) mname?: string;
-  @Field() lname!: string;
-  @Field() mobilenumber!: string;
+  @Field() email!: string;
+  @Field() userName!: string;
+  @Field() firstName!: string;
+  @Field({ nullable: true }) middleName?: string;
+  @Field() lastName!: string;
+  @Field() mobileNumber!: string;
   @Field() createdAt!: Date;
 }  // user register

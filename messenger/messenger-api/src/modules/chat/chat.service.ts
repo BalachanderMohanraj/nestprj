@@ -51,7 +51,7 @@ export class ChatService {
       senderId,
     },
     include: {
-      sender: true, // Returns sender details (name/gmail) for the UI
+      sender: true, // Returns sender details (name/email) for the UI
     },
   });
 }

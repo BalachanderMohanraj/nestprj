@@ -4,12 +4,12 @@
 
 type User {
   id: String!
-  gmail: String!
-  username: String!
-  fname: String!
-  mname: String
-  lname: String!
-  mobilenumber: String!
+  email: String!
+  userName: String!
+  firstName: String!
+  middleName: String
+  lastName: String!
+  mobileNumber: String!
   createdAt: DateTime!
 }
 
@@ -56,17 +56,17 @@ type Mutation {
 }
 
 input RegisterInput {
-  gmail: String!
-  fname: String!
-  mname: String
-  lname: String!
-  username: String!
-  mobilenumber: String!
+  email: String!
+  firstName: String!
+  middleName: String
+  lastName: String!
+  userName: String!
+  mobileNumber: String!
   password: String!
   confirmPassword: String!
 }
 
 input LoginInput {
-  gmail: String!
+  email: String!
   password: String!
 }

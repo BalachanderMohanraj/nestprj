@@ -1,41 +1,42 @@
 // src/modules/users/dto/register.input.ts
 import { InputType, Field } from '@nestjs/graphql';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, IsStrongPassword, MinLength } from 'class-validator';
 
 @InputType()
 export class RegisterInput {
   @Field()
   @IsEmail()
-  gmail!: string;
+  email!: string;
 
   @Field()
   @IsString()
   @IsNotEmpty()
-  fname!: string;
+  firstName!: string;
 
   @Field({ nullable: true })
   @IsString()
   @IsOptional() // This allows mname to be missing or null
-  mname?: string;
+  middleName?: string;
 
   @Field()
   @IsString()
   @IsNotEmpty()
-  lname!: string;
+  lastName!: string;
 
   @Field()
   @IsString()
   @IsNotEmpty()
-  username!: string;
+  userName!: string;
 
   @Field()
   @IsString()
   @IsNotEmpty()
-  mobilenumber!: string;
+  mobileNumber!: string;
 
   @Field()
   @IsString()
   @MinLength(8)
+  @IsStrongPassword()
   password!: string;
 
   @Field()

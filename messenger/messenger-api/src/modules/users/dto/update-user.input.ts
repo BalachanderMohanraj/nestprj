@@ -4,7 +4,7 @@ import { InputType, Field } from '@nestjs/graphql';
 @InputType()
 export class UpdateUserInput {
   @Field()
-  mobilenumber!: string;
+  mobileNumber!: string;
   @Field()
   password!: string;
 }

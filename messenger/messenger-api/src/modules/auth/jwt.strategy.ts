@@ -16,8 +16,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   // 2. This runs AFTER the token is verified. It attaches the user to the request.
-// sub: user.id, gmail: user.gmail, sub: user.id, tokenVersion: user.tokenVersion
-  async validate(payload: { sub: string; gmail: string, tokenVersion:number }) {
+// sub: user.id, email: user.email, sub: user.id, tokenVersion: user.tokenVersion
+  async validate(payload: { sub: string; email: string, tokenVersion:number }) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
     });
