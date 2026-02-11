@@ -23,6 +23,14 @@ type AuthResponse {
   user: User!
 }
 
+type SyncUserReport {
+  status: String!
+  action: String
+  message: String
+  dbUserId: String
+  firebaseUid: String
+}
+
 type Conversation {
   id: ID!
   createdAt: DateTime!
@@ -51,6 +59,12 @@ type Query {
 type Mutation {
   register(data: RegisterInput!): User!
   login(data: LoginInput!): AuthResponse!
+  updateProfile(data: UpdateUserInput!): User!
+  updatePassword(data: UpdatePasswordInput!): User!
+  forgotPassword(email: String!, useOobCode: Boolean): String!
+  disableAccount: User!
+  enableAccount: User!
+  syncUser(uidOrEmail: String!, adminKey: String!): SyncUserReport!
   startConversation(recipientId: String!): Conversation!
   sendMessage(conversationId: String!, content: String!): Message!
 }
@@ -69,4 +83,15 @@ input RegisterInput {
 input LoginInput {
   email: String!
   password: String!
+}
+
+input UpdateUserInput {
+  mobileNumber: String
+  firstName: String
+  lastName: String
+}
+
+input UpdatePasswordInput {
+  currentPassword: String!
+  newPassword: String!
 }

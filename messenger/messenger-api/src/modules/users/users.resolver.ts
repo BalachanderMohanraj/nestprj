@@ -7,6 +7,10 @@ import { AuthResponse } from '../auth/dto/auth-response.model';
 import { LoginInput } from '../auth/dto/login.input';
 import { UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../auth/gql-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { UpdateUserInput } from './dto/update-user.input';
+import { UpdatePasswordInput } from './dto/update-password.input';
+import { SyncUserReport } from './dto/sync-user-report.model';
 // import { UpdateUserInput } from './dto/update-user.input';
 
 @Resolver(() => User)
@@ -29,5 +33,59 @@ export class UsersResolver {
     return this.usersService.login(data);
   }
 
+  @Mutation(() => User)
+  @UseGuards(GqlAuthGuard)
+  async updateProfile(
+    @CurrentUser() user: any,
+    @Args('data') data: UpdateUserInput,
+  ) {
+    return this.usersService.updateProfile(user.id, data);
+  }
 
+  @Mutation(() => User)
+  @UseGuards(GqlAuthGuard)
+  async updatePassword(
+    @CurrentUser() user: any,
+    @Args('data') data: UpdatePasswordInput,
+  ) {
+    return this.usersService.updatePassword(user.id, data);
+  }
+
+  @Mutation(() => String)
+  async forgotPassword(
+    @Args('email') email: string,
+    @Args('useOobCode', { type: () => Boolean, nullable: true })
+    useOobCode?: boolean,
+  ) {
+    return this.usersService.forgotPassword(email, useOobCode);
+  }
+
+  @Mutation(() => User)
+  @UseGuards(GqlAuthGuard)
+  async disableAccount(@CurrentUser() user: any) {
+    return this.usersService.disableAccount(user.id);
+  }
+  @Mutation(() => User)
+  @UseGuards(GqlAuthGuard)
+  async enableAccount(@CurrentUser() user: any) {
+    return this.usersService.enableAccount(user.id);
+  }
+// Deletation logic need to be worked on later
+  // @Mutation(() => User)
+  // @UseGuards(GqlAuthGuard)
+  // async deleteAccountHard(
+  //   @Args('userId') userId: string,
+  //   @Args('adminKey') adminKey: string,
+  // ) {
+  //   return this.usersService.deleteAccountHard(userId, adminKey);
+  // }
+
+  @Mutation(() => SyncUserReport)
+  @UseGuards(GqlAuthGuard)
+  async syncUser(
+    @Args('uidOrEmail') uidOrEmail: string,
+    @Args('adminKey') adminKey: string,
+  ) {
+    return this.usersService.syncUser(uidOrEmail, adminKey);
+  }
 }

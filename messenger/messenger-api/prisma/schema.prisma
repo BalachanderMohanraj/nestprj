@@ -14,7 +14,7 @@ model User {
   createdAt    DateTime      @default(now())
   isActive     Boolean       @default(true)
   lastSeen     DateTime      @default(now())
-  password     String
+  password     String?
   updatedAt    DateTime      @updatedAt
   tokenVersion Int           @default(0)
   email        String        @unique

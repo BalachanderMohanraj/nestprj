@@ -50,3 +50,80 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+
+
+  /**
+   * Transitional Firebase login (backend-only):
+   * - Validates user against Firebase (email/password) via REST API using APIKEY
+   * - Links/syncs DB user with firebaseUid
+   * - Increments tokenVersion in DB
+   * - Sets Firebase custom claim tv=<tokenVersion>
+   * - Refreshes token so returned ID token includes the updated tv claim
+   * - Returns { accessToken: <FirebaseIdToken>, user }
+   */
+
+mutation SendNewMessage($conversationId: String!, $content: String!) {
+  sendMessage(conversationId: $conversationId, content: $content) {
+    id
+    content
+    createdAt
+    sender {
+      userName
+    }
+  }
+}
+
+mutation StartChat($recipientId: String!) {
+  startConversation(recipientId: $recipientId) {
+    id
+    createdAt
+    participants {
+      user {
+        id
+        userName
+        email
+      }
+    }
+  }
+}
+
+mutation Login {
+  login(data: {
+    email: "preethi.h.oxinfy@gmail.com",
+    password: "Password@123"
+  }) {
+    accessToken
+    user {
+      userName
+      firstName
+    }
+  }
+}
+
+mutation Register {
+  register(data: {
+    email: "bala.m.oxinfy@gmail.com",
+    firstName: "Bala",
+    lastName: "chander",
+    userName: "bala.m.ox",
+    mobileNumber: "+919874587820",
+    password: "Password@123",
+    confirmPassword: "Password@123"
+  }) {
+    id
+    email
+    userName
+  }
+}
+
+{
+  "recipientId": "647febe2-db03-47f5-bbe2-cdf5b03def5e"
+}
+
+{
+  "conversationId": "c1a6993d-4586-4cc2-9300-d949f577ac4c",
+  "content": "Hey! hi how are you."
+}
+
+{"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3YzQxYjc4ZS04ZWU1LTRlMDYtOGJlZi02YjM4NWEyY2U4MDMiLCJlbWFpbCI6InByZWV0aGkuaC5veGluZnlAZ21haWwuY29tIiwidG9rZW5WZXJzaW9uIjoxLCJpYXQiOjE3NzA2NDE4NDksImV4cCI6MTc3MTI0NjY0OX0.cBlqzynHLarT9pV75ec-h2495osCuuPXF4Xj4syCWCg"}

@@ -1,8 +1,11 @@
 import { Injectable, BadRequestException, UnauthorizedException, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterInput } from './dto/register.input';
+import { UpdateUserInput } from './dto/update-user.input';
+import { UpdatePasswordInput } from './dto/update-password.input';
+import { SyncUserReport } from './dto/sync-user-report.model';
 import { LoginInput } from '../auth/dto/login.input';
-import * as bcrypt from 'bcrypt';
+// import { v4 as uuidv4 } from 'uuid';
 import { FIREBASE_ADMIN } from '../auth/firebase/firebase-admin.provider';
 import type * as admin from 'firebase-admin';
 type FirebaseSignInResponse = {
@@ -56,13 +59,12 @@ let fbUser: admin.auth.UserRecord;
       throw new BadRequestException(e?.message ?? 'Failed to create Firebase user');
     }
   }
-    const hashedPassword = await bcrypt.hash(data.password, 10);
     const { confirmPassword, ...userData } = data;
     try {
     return await this.prisma.user.create({
       data: {
         ...userData,
-        password: hashedPassword,   // keep for now (schema requires it)
+        password: null,
         firebaseUid: fbUser.uid,    // ✅ DB <-> Firebase link
       },
     });
@@ -80,17 +82,6 @@ let fbUser: admin.auth.UserRecord;
     throw err;
   }
 }
-
-  /**
-   * Transitional Firebase login (backend-only):
-   * - Validates user against Firebase (email/password) via REST API using APIKEY
-   * - Links/syncs DB user with firebaseUid
-   * - Increments tokenVersion in DB
-   * - Sets Firebase custom claim tv=<tokenVersion>
-   * - Refreshes token so returned ID token includes the updated tv claim
-   * - Returns { accessToken: <FirebaseIdToken>, user }
-   */
-
   async login(data: LoginInput) {
     // 1) Authenticate via Firebase using email/password (backend-only)
     const signIn = await this.firebaseSignInWithPassword(data.email, data.password);
@@ -105,6 +96,9 @@ let fbUser: admin.auth.UserRecord;
       throw new UnauthorizedException(
         'User not found in DB. Please register first.',
       );
+    }
+    if (user.isActive === false) {
+      throw new UnauthorizedException('User is inactive or deleted');
     }
     // 3) Link firebaseUid (one-time) if missing OR validate it matches
     if (!user.firebaseUid) {
@@ -134,21 +128,282 @@ let fbUser: admin.auth.UserRecord;
   }
   // Used for the 'users' query
   async findAll() {
-    return this.prisma.user.findMany();
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+    });
+  }
+  async updateProfile(userId: string, data: UpdateUserInput) {
+    const { mobileNumber, firstName, lastName } = data;
+    if (!mobileNumber && !firstName && !lastName) {
+      throw new BadRequestException('No profile fields provided');
+    }
+    if (mobileNumber) {
+      const existing = await this.prisma.user.findFirst({
+        where: {
+          mobileNumber,
+          NOT: { id: userId },
+        },
+      });
+      if (existing) {
+        throw new BadRequestException('Mobile number already in use');
+      }
+    }
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(mobileNumber ? { mobileNumber } : {}),
+        ...(firstName ? { firstName } : {}),
+        ...(lastName ? { lastName } : {}),
+      },
+    });
+  }
+  async updatePassword(userId: string, data: UpdatePasswordInput) {
+    const { currentPassword, newPassword } = data;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    const signIn = await this.firebaseSignInWithPassword(
+      user.email,
+      currentPassword,
+    );
+    const uid = user.firebaseUid ?? signIn.localId;
+    if (!uid) {
+      throw new UnauthorizedException('Firebase user not found');
+    }
+    await this.firebase.auth().updateUser(uid, { password: newPassword });
+    try {
+      return await this.prisma.user.update({
+        where: { id: userId },
+        data: { password: null },
+      });
+    } catch (err) {
+      try {
+        await this.firebase.auth().updateUser(uid, { password: currentPassword });
+      } catch {
+        // best-effort rollback
+      }
+      throw err;
+    }
+  }
+  async forgotPassword(email: string, useOobCode = false) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+    if (!user || user.isActive === false) {
+      throw new BadRequestException('User not found');
+    }
+    const link = await this.firebase.auth().generatePasswordResetLink(email);
+    if (useOobCode) {
+      await this.firebaseSendPasswordResetOobCode(email);
+    }
+    return link;
+  }
+  async disableAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    const uid = user.firebaseUid;
+    if (!uid) {
+      throw new BadRequestException('Firebase user not linked');
+    }
+    await this.firebase.auth().updateUser(uid, { disabled: true });
+    try {
+      return await this.prisma.user.update({
+        where: { id: userId },
+        data: { isActive: false },
+      });
+    } catch (err) {
+      try {
+        await this.firebase.auth().updateUser(uid, { disabled: false });
+      } catch {
+        // best-effort rollback
+      }
+      throw err;
+    }
+  }
+  async enableAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const uid = user.firebaseUid;
+    if (!uid) {
+      throw new BadRequestException('Firebase user not linked');
+    }
+
+    // Ensure Firebase user exists; if missing, we cannot enable
+    try {
+      await this.firebase.auth().getUser(uid);
+    } catch (err: any) {
+      if (err?.code === 'auth/user-not-found') {
+        throw new BadRequestException('Firebase user not found');
+      }
+      throw err;
+    }
+
+    await this.firebase.auth().updateUser(uid, { disabled: false });
+
+    try {
+      const updated = await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          isActive: true,
+          tokenVersion: { increment: 1 },
+        },
+      });
+
+      await this.firebase.auth().setCustomUserClaims(uid, {
+        tv: updated.tokenVersion,
+      });
+
+      return updated;
+    } catch (err) {
+      try {
+        await this.firebase.auth().updateUser(uid, { disabled: true });
+      } catch {
+        // best-effort rollback
+      }
+      throw err;
+    }
+  }
+  // Deletation logic need to be worked on later
+  // async deleteAccountHard(userId: string, adminKey: string) {
+  //   const expected = process.env.ADMIN_API_KEY;
+  //   if (!expected || adminKey !== expected) {
+  //     throw new UnauthorizedException('Admin access required');
+  //   }
+  //   const user = await this.prisma.user.findUnique({
+  //     where: { id: userId },
+  //   });
+  //   if (!user) {
+  //     throw new BadRequestException('User not found');
+  //   }
+  //   const suffix = user.id ?? uuidv4();
+  //   const anonymizedEmail = `deleted+${suffix}@example.invalid`;
+  //   const anonymizedUserName = `deleted_${suffix}`;
+  //   const anonymizedMobile = `deleted_${suffix}`;
+  //   const anonymizedFirstName = 'Deleted';
+  //   const anonymizedLastName = 'User';
+  //   const updated = await this.prisma.user.update({
+  //     where: { id: userId },
+  //     data: {
+  //       email: anonymizedEmail,
+  //       userName: anonymizedUserName,
+  //       mobileNumber: anonymizedMobile,
+  //       firstName: anonymizedFirstName,
+  //       lastName: anonymizedLastName,
+  //       middleName: null,
+  //       password: null,
+  //       isActive: false,
+  //       firebaseUid: null,
+  //     },
+  //   });
+  //   if (user.firebaseUid) {
+  //     await this.firebase.auth().deleteUser(user.firebaseUid);
+  //   }
+  //   return updated;
+  // }
+  async syncUser(uidOrEmail: string, adminKey: string): Promise<SyncUserReport> {
+    const expected = process.env.ADMIN_API_KEY;
+    if (!expected || adminKey !== expected) {
+      throw new UnauthorizedException('Admin access required');
+    }
+    let fbUser: admin.auth.UserRecord | null = null;
+    try {
+      fbUser = await this.firebase.auth().getUser(uidOrEmail);
+    } catch (err: any) {
+      if (err?.code === 'auth/user-not-found') {
+        if (uidOrEmail.includes('@')) {
+          try {
+            fbUser = await this.firebase.auth().getUserByEmail(uidOrEmail);
+          } catch (err2: any) {
+            if (err2?.code !== 'auth/user-not-found') {
+              throw err2;
+            }
+          }
+        }
+      } else {
+        throw err;
+      }
+    }
+    if (fbUser) {
+      const existing = await this.prisma.user.findUnique({
+        where: { firebaseUid: fbUser.uid },
+      });
+      if (existing) {
+        return {
+          status: 'ok',
+          action: 'noop',
+          message: 'DB user already linked to Firebase user',
+          dbUserId: existing.id,
+          firebaseUid: fbUser.uid,
+        };
+      }
+      const suffix = fbUser.uid;
+      const shadowEmail = fbUser.email ?? `shadow+${suffix}@example.invalid`;
+      const shadowUserName = `shadow_${suffix}`;
+      const shadowMobile = `shadow_${suffix}`;
+      const created = await this.prisma.user.create({
+        data: {
+          email: shadowEmail,
+          userName: shadowUserName,
+          mobileNumber: shadowMobile,
+          firstName: fbUser.displayName?.split(' ')[0] ?? 'Shadow',
+          lastName: fbUser.displayName?.split(' ').slice(1).join(' ') || 'User',
+          password: null,
+          firebaseUid: fbUser.uid,
+          isActive: true,
+        },
+      });
+      return {
+        status: 'ok',
+        action: 'created_db_shadow',
+        dbUserId: created.id,
+        firebaseUid: fbUser.uid,
+      };
+    }
+    const dbUser = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { firebaseUid: uidOrEmail },
+          { email: uidOrEmail },
+        ],
+      },
+    });
+    if (!dbUser) {
+      return {
+        status: 'not_found',
+        message: 'No Firebase or DB user found',
+      };
+    }
+    const updated = await this.prisma.user.update({
+      where: { id: dbUser.id },
+      data: { isActive: false, tokenVersion: { increment: 1 } },
+    });
+    return {
+      status: 'ok',
+      action: 'marked_db_inactive',
+      dbUserId: updated.id,
+      firebaseUid: updated.firebaseUid ?? undefined,
+    };
   }
   // ---------------------------
   // Firebase REST helpers
   // ---------------------------
   private getFirebaseApiKey(): string {
     const apiKey = process.env.APIKEY;
-    // const apiKey = (process.env.APIKEY ?? '').trim();
-    // console.log('APIKEY present?', !!process.env.APIKEY);
-    // const apiKey = (process.env.APIKEY ?? '').trim();
-    // console.log('APIKEY startsWith AIza?', apiKey.startsWith('AIza'), 'len', apiKey.length);
     if (!apiKey) throw new Error('APIKEY (Firebase Web API key) is missing in env');
     return apiKey;
   }
-
   private async firebaseSignInWithPassword(email: string, password: string): Promise<FirebaseSignInResponse> {
     const apiKey = this.getFirebaseApiKey();
     const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`;
@@ -165,6 +420,9 @@ let fbUser: admin.auth.UserRecord;
     if (!res.ok) {
       // Common Firebase error payload: { error: { message: "INVALID_PASSWORD" } }
       const msg = json?.error?.message ?? 'Firebase sign-in failed';
+      if (msg === 'USER_DISABLED') {
+        throw new UnauthorizedException('User disabled');
+      }
       throw new UnauthorizedException(msg);
     }
     return {
@@ -174,7 +432,6 @@ let fbUser: admin.auth.UserRecord;
       localId: json.localId,
     };
   }
-
   private async firebaseRefreshIdToken(refreshToken: string): Promise<FirebaseRefreshResponse> {
     const apiKey = this.getFirebaseApiKey();
     const url = `https://securetoken.googleapis.com/v1/token?key=${apiKey}`;
@@ -197,5 +454,22 @@ let fbUser: admin.auth.UserRecord;
       refresh_token: json.refresh_token,
       user_id: json.user_id,
     };
+  }
+  private async firebaseSendPasswordResetOobCode(email: string): Promise<void> {
+    const apiKey = this.getFirebaseApiKey();
+    const url = `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        requestType: 'PASSWORD_RESET',
+        email,
+      }),
+    });
+    const json: any = await res.json();
+    if (!res.ok) {
+      const msg = json?.error?.message ?? 'Firebase password reset failed';
+      throw new BadRequestException(msg);
+    }
   }
 }

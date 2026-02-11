@@ -20,3 +20,6 @@ POST login(email, password)
 → backend bumps tokenVersion + sets Firebase custom claim
 → backend returns accessToken = Firebase ID token
 → guards verify token using firebase-admin
+
+Added update query to change firstname,lastname and mobilenumber
+Added update query to change password and also old password is not working
