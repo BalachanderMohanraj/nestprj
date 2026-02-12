@@ -21,9 +21,11 @@ describe('UsersService (unit) - Firebase Auth transitional', () => {
   const firebaseAuthMock = {
     createUser: jest.fn(),
     getUserByEmail: jest.fn(),
+    getUser: jest.fn(),
     deleteUser: jest.fn(),
     setCustomUserClaims: jest.fn(),
     updateUser: jest.fn(),
+    generatePasswordResetLink: jest.fn(),
   };
 
   const firebaseMock = {
@@ -341,7 +343,11 @@ describe('UsersService (unit) - Firebase Auth transitional', () => {
         id: 'u1',
         firebaseUid: 'fb_uid_1',
       });
-      prismaMock.user.update.mockResolvedValue({ id: 'u1', isActive: false });
+      prismaMock.user.update.mockResolvedValue({
+        id: 'u1',
+        isActive: false,
+        tokenVersion: 2,
+      });
       firebaseAuthMock.updateUser.mockResolvedValue({});
 
       const res = await service.disableAccount('u1');
@@ -349,9 +355,10 @@ describe('UsersService (unit) - Firebase Auth transitional', () => {
       expect(firebaseAuthMock.updateUser).toHaveBeenCalledWith('fb_uid_1', { disabled: true });
       expect(prismaMock.user.update).toHaveBeenCalledWith({
         where: { id: 'u1' },
-        data: { isActive: false },
+        data: { isActive: false, tokenVersion: { increment: 1 } },
       });
-      expect(res).toEqual({ id: 'u1', isActive: false });
+      expect(firebaseAuthMock.setCustomUserClaims).toHaveBeenCalledWith('fb_uid_1', { tv: 2 });
+      expect(res).toEqual({ id: 'u1', isActive: false, tokenVersion: 2 });
     });
 
     it('throws if user not found', async () => {
@@ -361,6 +368,356 @@ describe('UsersService (unit) - Firebase Auth transitional', () => {
         new UnauthorizedException('User not found'),
       );
       expect(firebaseAuthMock.updateUser).not.toHaveBeenCalled();
+    });
+
+    it('rolls back Firebase disable if DB update fails', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        firebaseUid: 'fb_uid_1',
+      });
+      firebaseAuthMock.updateUser.mockResolvedValue({});
+      prismaMock.user.update.mockRejectedValue(new Error('DB fail'));
+
+      await expect(service.disableAccount('u1')).rejects.toThrow('DB fail');
+
+      expect(firebaseAuthMock.updateUser).toHaveBeenNthCalledWith(1, 'fb_uid_1', {
+        disabled: true,
+      });
+      expect(firebaseAuthMock.updateUser).toHaveBeenNthCalledWith(2, 'fb_uid_1', {
+        disabled: false,
+      });
+    });
+  });
+
+  // --------------------
+  // logout()
+  // --------------------
+  describe('logout()', () => {
+    it('increments tokenVersion and updates Firebase custom claim', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        firebaseUid: 'fb_uid_1',
+      });
+      prismaMock.user.update.mockResolvedValue({
+        id: 'u1',
+        tokenVersion: 3,
+      });
+
+      const res = await service.logout('u1');
+
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { tokenVersion: { increment: 1 } },
+      });
+      expect(firebaseAuthMock.setCustomUserClaims).toHaveBeenCalledWith('fb_uid_1', { tv: 3 });
+      expect(res).toBe(true);
+    });
+
+    it('throws if user not found', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.logout('u1')).rejects.toThrow(
+        new UnauthorizedException('User not found'),
+      );
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+      expect(firebaseAuthMock.setCustomUserClaims).not.toHaveBeenCalled();
+    });
+
+    it('throws if Firebase user is not linked', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        firebaseUid: null,
+      });
+
+      await expect(service.logout('u1')).rejects.toThrow(
+        new BadRequestException('Firebase user not linked'),
+      );
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+      expect(firebaseAuthMock.setCustomUserClaims).not.toHaveBeenCalled();
+    });
+  });
+
+  // --------------------
+  // updateProfile()
+  // --------------------
+  describe('updateProfile()', () => {
+    it('throws if no profile fields provided', async () => {
+      await expect(service.updateProfile('u1', {} as any)).rejects.toThrow(
+        new BadRequestException('No profile fields provided'),
+      );
+      expect(prismaMock.user.findFirst).not.toHaveBeenCalled();
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+
+    it('throws if mobile number already in use by another user', async () => {
+      prismaMock.user.findFirst.mockResolvedValue({ id: 'other' });
+
+      await expect(
+        service.updateProfile('u1', { mobileNumber: '9999999999' } as any),
+      ).rejects.toThrow(new BadRequestException('Mobile number already in use'));
+
+      expect(prismaMock.user.findFirst).toHaveBeenCalledWith({
+        where: { mobileNumber: '9999999999', NOT: { id: 'u1' } },
+      });
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+
+    it('updates provided profile fields', async () => {
+      prismaMock.user.findFirst.mockResolvedValue(null);
+      prismaMock.user.update.mockResolvedValue({
+        id: 'u1',
+        firstName: 'A',
+        lastName: 'B',
+        mobileNumber: '9999999999',
+      });
+
+      const res = await service.updateProfile('u1', {
+        firstName: 'A',
+        lastName: 'B',
+        mobileNumber: '9999999999',
+      } as any);
+
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: {
+          mobileNumber: '9999999999',
+          firstName: 'A',
+          lastName: 'B',
+        },
+      });
+      expect(res).toEqual({
+        id: 'u1',
+        firstName: 'A',
+        lastName: 'B',
+        mobileNumber: '9999999999',
+      });
+    });
+  });
+
+  // --------------------
+  // updatePassword()
+  // --------------------
+  describe('updatePassword()', () => {
+    it('throws if DB user not found', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updatePassword('u1', {
+          currentPassword: 'old',
+          newPassword: 'new',
+        } as any),
+      ).rejects.toThrow(new UnauthorizedException('User not found'));
+    });
+
+    it('updates Firebase password and DB password placeholder', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'a@b.com',
+        firebaseUid: 'fb_uid_1',
+      });
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          idToken: 'id1',
+          refreshToken: 'ref1',
+          email: 'a@b.com',
+          localId: 'fb_uid_1',
+        }),
+      });
+      firebaseAuthMock.updateUser.mockResolvedValue({});
+      prismaMock.user.update.mockResolvedValue({ id: 'u1', password: null });
+
+      const res = await service.updatePassword('u1', {
+        currentPassword: 'old',
+        newPassword: 'new',
+      } as any);
+
+      expect(firebaseAuthMock.updateUser).toHaveBeenCalledWith('fb_uid_1', {
+        password: 'new',
+      });
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { password: null },
+      });
+      expect(res).toEqual({ id: 'u1', password: null });
+    });
+
+    it('rolls back Firebase password if DB update fails', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'a@b.com',
+        firebaseUid: 'fb_uid_1',
+      });
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          idToken: 'id1',
+          refreshToken: 'ref1',
+          email: 'a@b.com',
+          localId: 'fb_uid_1',
+        }),
+      });
+      firebaseAuthMock.updateUser.mockResolvedValue({});
+      prismaMock.user.update.mockRejectedValue(new Error('DB fail'));
+
+      await expect(
+        service.updatePassword('u1', {
+          currentPassword: 'old',
+          newPassword: 'new',
+        } as any),
+      ).rejects.toThrow('DB fail');
+
+      expect(firebaseAuthMock.updateUser).toHaveBeenNthCalledWith(1, 'fb_uid_1', {
+        password: 'new',
+      });
+      expect(firebaseAuthMock.updateUser).toHaveBeenNthCalledWith(2, 'fb_uid_1', {
+        password: 'old',
+      });
+    });
+  });
+
+  // --------------------
+  // forgotPassword()
+  // --------------------
+  describe('forgotPassword()', () => {
+    it('throws when user not found', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.forgotPassword('a@b.com')).rejects.toThrow(
+        new BadRequestException('User not found'),
+      );
+      expect(firebaseAuthMock.generatePasswordResetLink).not.toHaveBeenCalled();
+    });
+
+    it('throws when user is inactive', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'a@b.com',
+        isActive: false,
+      });
+
+      await expect(service.forgotPassword('a@b.com')).rejects.toThrow(
+        new BadRequestException('User not found'),
+      );
+      expect(firebaseAuthMock.generatePasswordResetLink).not.toHaveBeenCalled();
+    });
+
+    it('returns reset link without oob call by default', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'a@b.com',
+        isActive: true,
+      });
+      firebaseAuthMock.generatePasswordResetLink.mockResolvedValue(
+        'https://reset-link',
+      );
+
+      const res = await service.forgotPassword('a@b.com');
+
+      expect(firebaseAuthMock.generatePasswordResetLink).toHaveBeenCalledWith(
+        'a@b.com',
+      );
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(res).toBe('https://reset-link');
+    });
+
+    it('calls Firebase sendOobCode when useOobCode=true', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'a@b.com',
+        isActive: true,
+      });
+      firebaseAuthMock.generatePasswordResetLink.mockResolvedValue(
+        'https://reset-link',
+      );
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({}),
+      });
+
+      const res = await service.forgotPassword('a@b.com', true);
+
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(res).toBe('https://reset-link');
+    });
+  });
+
+  // --------------------
+  // syncUser()
+  // --------------------
+  describe('syncUser()', () => {
+    it('rejects when admin key is invalid', async () => {
+      await expect(service.syncUser('uid-or-email', 'wrong-key')).rejects.toThrow(
+        new UnauthorizedException('Admin access required'),
+      );
+    });
+
+    it('returns noop when Firebase exists and DB user already linked', async () => {
+      firebaseAuthMock.getUser.mockResolvedValue({
+        uid: 'fb_uid_1',
+        email: 'a@b.com',
+      });
+      prismaMock.user.findUnique.mockResolvedValue({ id: 'u1' });
+
+      const res = await service.syncUser('fb_uid_1', 'admin-key');
+
+      expect(res).toEqual({
+        status: 'ok',
+        action: 'noop',
+        message: 'DB user already linked to Firebase user',
+        dbUserId: 'u1',
+        firebaseUid: 'fb_uid_1',
+      });
+    });
+
+    it('creates DB shadow user when Firebase exists but DB is missing', async () => {
+      firebaseAuthMock.getUser.mockResolvedValue({
+        uid: 'fb_uid_1',
+        email: 'a@b.com',
+        displayName: 'Test User',
+      });
+      prismaMock.user.findUnique.mockResolvedValue(null);
+      prismaMock.user.create.mockResolvedValue({
+        id: 'shadow_u1',
+        firebaseUid: 'fb_uid_1',
+      });
+
+      const res = await service.syncUser('fb_uid_1', 'admin-key');
+
+      expect(prismaMock.user.create).toHaveBeenCalledTimes(1);
+      expect(res).toEqual({
+        status: 'ok',
+        action: 'created_db_shadow',
+        dbUserId: 'shadow_u1',
+        firebaseUid: 'fb_uid_1',
+      });
+    });
+
+    it('marks DB user inactive when Firebase user is missing but DB user exists', async () => {
+      const notFoundError: any = new Error('not found');
+      notFoundError.code = 'auth/user-not-found';
+      firebaseAuthMock.getUser.mockRejectedValue(notFoundError);
+      prismaMock.user.findFirst.mockResolvedValue({
+        id: 'u1',
+        firebaseUid: 'fb_uid_1',
+      });
+      prismaMock.user.update.mockResolvedValue({
+        id: 'u1',
+        firebaseUid: 'fb_uid_1',
+      });
+
+      const res = await service.syncUser('fb_uid_1', 'admin-key');
+
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { isActive: false, tokenVersion: { increment: 1 } },
+      });
+      expect(res).toEqual({
+        status: 'ok',
+        action: 'marked_db_inactive',
+        dbUserId: 'u1',
+        firebaseUid: 'fb_uid_1',
+      });
     });
   });
 

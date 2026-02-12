@@ -65,6 +65,13 @@ export class UsersResolver {
   async disableAccount(@CurrentUser() user: any) {
     return this.usersService.disableAccount(user.id);
   }
+
+  @Mutation(() => Boolean)
+  @UseGuards(GqlAuthGuard)
+  async logout(@CurrentUser() user: any) {
+    return this.usersService.logout(user.id);
+  }
+
   @Mutation(() => SyncUserReport)
   @UseGuards(GqlAuthGuard)
   async syncUser(

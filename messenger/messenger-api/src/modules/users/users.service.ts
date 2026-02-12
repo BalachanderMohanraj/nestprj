@@ -19,7 +19,7 @@ type FirebaseRefreshResponse = {
   refresh_token: string; // new refresh token
   user_id: string;       // uid
 };
-
+ 
 @Injectable()
 export class UsersService {
   constructor(
@@ -50,7 +50,6 @@ let fbUser: admin.auth.UserRecord;
     fbUser = await this.firebase.auth().createUser({
       email: data.email,
       password: data.password,
-      // displayName: `${data.firstName} ${data.lastName}`.trim(),
     });
   } catch (e: any) {
     // If user already exists in Firebase, link it (optional but good for sync)
@@ -231,6 +230,28 @@ let fbUser: admin.auth.UserRecord;
       }
       throw err;
     }
+  }
+
+  async logout(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    if (!user.firebaseUid) {
+      throw new BadRequestException('Firebase user not linked');
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { tokenVersion: { increment: 1 } },
+    });
+
+    await this.firebase.auth().setCustomUserClaims(user.firebaseUid, {
+      tv: updatedUser.tokenVersion,
+    });
+    return true;
   }
 
   async syncUser(uidOrEmail: string, adminKey: string): Promise<SyncUserReport> {

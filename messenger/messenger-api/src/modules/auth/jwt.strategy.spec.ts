@@ -5,6 +5,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { JwtStrategy } from './jwt.strategy';
 
 describe('JwtStrategy (unit)', () => {
+  let strategy: JwtStrategy;
+
   const prismaMock = {
     user: {
       findUnique: jest.fn(),
@@ -19,37 +21,29 @@ describe('JwtStrategy (unit)', () => {
     jest.clearAllMocks();
   });
 
+  const buildStrategy = async (secret: string | undefined) => {
+    configMock.get.mockReturnValue(secret);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        JwtStrategy,
+        { provide: PrismaService, useValue: prismaMock },
+        { provide: ConfigService, useValue: configMock },
+      ],
+    }).compile();
+
+    return moduleRef.get(JwtStrategy);
+  };
+
   describe('constructor', () => {
     it('should throw error if JWT_SECRET is not defined', async () => {
-      configMock.get.mockReturnValue(undefined);
-
-      // CreateTestingModule will try to instantiate JwtStrategy,
-      // which should throw in constructor
-      await expect(async () => {
-        const moduleRef = await Test.createTestingModule({
-          providers: [
-            JwtStrategy,
-            { provide: PrismaService, useValue: prismaMock },
-            { provide: ConfigService, useValue: configMock },
-          ],
-        }).compile();
-
-        moduleRef.get(JwtStrategy);
-      }).rejects.toThrow('JWT_SECRET is not defined');
+      await expect(buildStrategy(undefined)).rejects.toThrow(
+        'JWT_SECRET is not defined',
+      );
     });
 
     it('should construct successfully if JWT_SECRET exists', async () => {
-      configMock.get.mockReturnValue('secret123');
-
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          JwtStrategy,
-          { provide: PrismaService, useValue: prismaMock },
-          { provide: ConfigService, useValue: configMock },
-        ],
-      }).compile();
-
-      const strategy = moduleRef.get(JwtStrategy);
+      strategy = await buildStrategy('secret123');
       expect(strategy).toBeDefined();
       expect(configMock.get).toHaveBeenCalledWith('JWT_SECRET');
     });
@@ -57,17 +51,7 @@ describe('JwtStrategy (unit)', () => {
 
   describe('validate()', () => {
     it('should return user when user exists and tokenVersion matches', async () => {
-      configMock.get.mockReturnValue('secret123');
-
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          JwtStrategy,
-          { provide: PrismaService, useValue: prismaMock },
-          { provide: ConfigService, useValue: configMock },
-        ],
-      }).compile();
-
-      const strategy = moduleRef.get(JwtStrategy);
+      strategy = await buildStrategy('secret123');
 
       const payload = { sub: 'u1', email: 'a@b.com', tokenVersion: 2 };
 
@@ -83,17 +67,7 @@ describe('JwtStrategy (unit)', () => {
     });
 
     it('should throw UnauthorizedException if user not found', async () => {
-      configMock.get.mockReturnValue('secret123');
-
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          JwtStrategy,
-          { provide: PrismaService, useValue: prismaMock },
-          { provide: ConfigService, useValue: configMock },
-        ],
-      }).compile();
-
-      const strategy = moduleRef.get(JwtStrategy);
+      strategy = await buildStrategy('secret123');
 
       prismaMock.user.findUnique.mockResolvedValue(null);
 
@@ -103,17 +77,7 @@ describe('JwtStrategy (unit)', () => {
     });
 
     it('should throw UnauthorizedException if tokenVersion does not match', async () => {
-      configMock.get.mockReturnValue('secret123');
-
-      const moduleRef = await Test.createTestingModule({
-        providers: [
-          JwtStrategy,
-          { provide: PrismaService, useValue: prismaMock },
-          { provide: ConfigService, useValue: configMock },
-        ],
-      }).compile();
-
-      const strategy = moduleRef.get(JwtStrategy);
+      strategy = await buildStrategy('secret123');
 
       prismaMock.user.findUnique.mockResolvedValue({
         id: 'u1',

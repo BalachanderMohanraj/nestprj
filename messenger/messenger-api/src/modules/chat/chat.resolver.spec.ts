@@ -2,6 +2,9 @@ import { Test } from '@nestjs/testing';
 import { ChatResolver } from './chat.resolver';
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
+import { GqlAuthGuard } from '../auth/gql-auth.guard';
+import { PrismaService } from '../../prisma/prisma.service';
+import { FIREBASE_ADMIN } from '../auth/firebase/firebase-admin.provider';
 
 describe('ChatResolver (unit)', () => {
   let resolver: ChatResolver;
@@ -23,6 +26,23 @@ describe('ChatResolver (unit)', () => {
       to: toMock,
     },
   };
+
+  const gqlAuthGuardMock = {
+    canActivate: jest.fn(() => true),
+  };
+
+  const prismaMock = {
+    user: {
+      findUnique: jest.fn(),
+    },
+  };
+
+  const firebaseAdminMock = {
+    auth: jest.fn(() => ({
+      verifyIdToken: jest.fn(),
+    })),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const moduleRef = await Test.createTestingModule({
@@ -30,6 +50,9 @@ describe('ChatResolver (unit)', () => {
         ChatResolver,
         { provide: ChatService, useValue: chatServiceMock },
         { provide: ChatGateway, useValue: chatGatewayMock },
+        { provide: GqlAuthGuard, useValue: gqlAuthGuardMock },
+        { provide: PrismaService, useValue: prismaMock },
+        { provide: FIREBASE_ADMIN, useValue: firebaseAdminMock },
       ],
     }).compile();
     resolver = moduleRef.get(ChatResolver);
@@ -95,5 +118,4 @@ describe('ChatResolver (unit)', () => {
     });
   });
 });
-
 

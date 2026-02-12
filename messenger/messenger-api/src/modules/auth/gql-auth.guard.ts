@@ -42,6 +42,12 @@ export class GqlAuthGuard implements CanActivate {
         throw new UnauthorizedException('User is inactive or deleted');
       }
 
+      const tokenVersionClaim =
+        typeof decoded.tv === 'number' ? decoded.tv : Number(decoded.tv);
+      if (!Number.isInteger(tokenVersionClaim) || tokenVersionClaim !== user.tokenVersion) {
+        throw new UnauthorizedException('Token is no longer valid');
+      }
+
       // Attach just like Passport did
       req.user = user;
 

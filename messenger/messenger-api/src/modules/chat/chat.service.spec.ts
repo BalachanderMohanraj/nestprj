@@ -2,7 +2,6 @@ import { Test } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { JwtService } from '@nestjs/jwt';
 
 describe('ChatService (unit)', () => {
   let service: ChatService;
@@ -18,11 +17,6 @@ describe('ChatService (unit)', () => {
     },
   };
 
-  const jwtMock = {
-    sign: jest.fn(),
-    verify: jest.fn(),
-  };
-
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -30,7 +24,6 @@ describe('ChatService (unit)', () => {
       providers: [
         ChatService,
         { provide: PrismaService, useValue: prismaMock },
-        { provide: JwtService, useValue: jwtMock },
       ],
     }).compile();
 
