@@ -5,9 +5,9 @@ import { UpdateUserInput } from './dto/update-user.input';
 import { UpdatePasswordInput } from './dto/update-password.input';
 import { SyncUserReport } from './dto/sync-user-report.model';
 import { LoginInput } from '../auth/dto/login.input';
-// import { v4 as uuidv4 } from 'uuid';
 import { FIREBASE_ADMIN } from '../auth/firebase/firebase-admin.provider';
 import type * as admin from 'firebase-admin';
+
 type FirebaseSignInResponse = {
   idToken: string;
   refreshToken: string;
@@ -19,6 +19,7 @@ type FirebaseRefreshResponse = {
   refresh_token: string; // new refresh token
   user_id: string;       // uid
 };
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -214,10 +215,14 @@ let fbUser: admin.auth.UserRecord;
     }
     await this.firebase.auth().updateUser(uid, { disabled: true });
     try {
-      return await this.prisma.user.update({
+      const updated = await this.prisma.user.update({
         where: { id: userId },
-        data: { isActive: false },
+        data: { isActive: false, tokenVersion: { increment: 1 } },
       });
+      await this.firebase.auth().setCustomUserClaims(uid, {
+        tv: updated.tokenVersion,
+      });
+      return updated;
     } catch (err) {
       try {
         await this.firebase.auth().updateUser(uid, { disabled: false });
@@ -227,91 +232,7 @@ let fbUser: admin.auth.UserRecord;
       throw err;
     }
   }
-  async enableAccount(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-    });
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
 
-    const uid = user.firebaseUid;
-    if (!uid) {
-      throw new BadRequestException('Firebase user not linked');
-    }
-
-    // Ensure Firebase user exists; if missing, we cannot enable
-    try {
-      await this.firebase.auth().getUser(uid);
-    } catch (err: any) {
-      if (err?.code === 'auth/user-not-found') {
-        throw new BadRequestException('Firebase user not found');
-      }
-      throw err;
-    }
-
-    await this.firebase.auth().updateUser(uid, { disabled: false });
-
-    try {
-      const updated = await this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          isActive: true,
-          tokenVersion: { increment: 1 },
-        },
-      });
-
-      await this.firebase.auth().setCustomUserClaims(uid, {
-        tv: updated.tokenVersion,
-      });
-
-      return updated;
-    } catch (err) {
-      try {
-        await this.firebase.auth().updateUser(uid, { disabled: true });
-      } catch {
-        // best-effort rollback
-      }
-      throw err;
-    }
-  }
-  // Deletation logic need to be worked on later
-  // async deleteAccountHard(userId: string, adminKey: string) {
-  //   const expected = process.env.ADMIN_API_KEY;
-  //   if (!expected || adminKey !== expected) {
-  //     throw new UnauthorizedException('Admin access required');
-  //   }
-  //   const user = await this.prisma.user.findUnique({
-  //     where: { id: userId },
-  //   });
-  //   if (!user) {
-  //     throw new BadRequestException('User not found');
-  //   }
-  //   const suffix = user.id ?? uuidv4();
-  //   const anonymizedEmail = `deleted+${suffix}@example.invalid`;
-  //   const anonymizedUserName = `deleted_${suffix}`;
-  //   const anonymizedMobile = `deleted_${suffix}`;
-  //   const anonymizedFirstName = 'Deleted';
-  //   const anonymizedLastName = 'User';
-  //   const updated = await this.prisma.user.update({
-  //     where: { id: userId },
-  //     data: {
-  //       email: anonymizedEmail,
-  //       userName: anonymizedUserName,
-  //       mobileNumber: anonymizedMobile,
-  //       firstName: anonymizedFirstName,
-  //       lastName: anonymizedLastName,
-  //       middleName: null,
-  //       password: null,
-  //       isActive: false,
-  //       firebaseUid: null,
-  //     },
-  //   });
-  //   if (user.firebaseUid) {
-  //     await this.firebase.auth().deleteUser(user.firebaseUid);
-  //   }
-  //   return updated;
-  // }
   async syncUser(uidOrEmail: string, adminKey: string): Promise<SyncUserReport> {
     const expected = process.env.ADMIN_API_KEY;
     if (!expected || adminKey !== expected) {
@@ -472,4 +393,5 @@ let fbUser: admin.auth.UserRecord;
       throw new BadRequestException(msg);
     }
   }
+
 }

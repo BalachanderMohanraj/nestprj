@@ -63,7 +63,6 @@ type Mutation {
   updatePassword(data: UpdatePasswordInput!): User!
   forgotPassword(email: String!, useOobCode: Boolean): String!
   disableAccount: User!
-  enableAccount: User!
   syncUser(uidOrEmail: String!, adminKey: String!): SyncUserReport!
   startConversation(recipientId: String!): Conversation!
   sendMessage(conversationId: String!, content: String!): Message!

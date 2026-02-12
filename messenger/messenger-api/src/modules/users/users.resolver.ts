@@ -65,21 +65,6 @@ export class UsersResolver {
   async disableAccount(@CurrentUser() user: any) {
     return this.usersService.disableAccount(user.id);
   }
-  @Mutation(() => User)
-  @UseGuards(GqlAuthGuard)
-  async enableAccount(@CurrentUser() user: any) {
-    return this.usersService.enableAccount(user.id);
-  }
-// Deletation logic need to be worked on later
-  // @Mutation(() => User)
-  // @UseGuards(GqlAuthGuard)
-  // async deleteAccountHard(
-  //   @Args('userId') userId: string,
-  //   @Args('adminKey') adminKey: string,
-  // ) {
-  //   return this.usersService.deleteAccountHard(userId, adminKey);
-  // }
-
   @Mutation(() => SyncUserReport)
   @UseGuards(GqlAuthGuard)
   async syncUser(

@@ -364,35 +364,4 @@ describe('UsersService (unit) - Firebase Auth transitional', () => {
     });
   });
 
-  // --------------------
-  // deleteAccountHard()
-  // --------------------
-  describe('deleteAccountHard()', () => {
-    it('anonymizes DB user and deletes Firebase user', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({
-        id: 'u1',
-        email: 'a@b.com',
-        userName: 'user1',
-        mobileNumber: '999',
-        firebaseUid: 'fb_uid_1',
-      });
-      prismaMock.user.update.mockResolvedValue({ id: 'u1', isActive: false });
-      firebaseAuthMock.deleteUser.mockResolvedValue({});
-      const res = await service.deleteAccountHard('u1', 'admin-key');
-
-      expect(prismaMock.user.update).toHaveBeenCalled();
-      expect(firebaseAuthMock.deleteUser).toHaveBeenCalledWith('fb_uid_1');
-      expect(res).toEqual({ id: 'u1', isActive: false });
-    });
-
-    it('throws for unknown user', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(null);
-
-      await expect(service.deleteAccountHard('u1', 'admin-key')).rejects.toThrow(
-        new BadRequestException('User not found'),
-      );
-      expect(prismaMock.user.update).not.toHaveBeenCalled();
-      expect(firebaseAuthMock.deleteUser).not.toHaveBeenCalled();
-    });
-  });
 });

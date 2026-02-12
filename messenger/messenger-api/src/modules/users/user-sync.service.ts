@@ -8,33 +8,29 @@ import { Interval } from '@nestjs/schedule';
 @Injectable()
 export class UserSyncService {
   private readonly logger = new Logger(UserSyncService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     @Inject(FIREBASE_ADMIN) private readonly firebase: typeof admin,
   ) {}
-
   @Interval('user-sync', 60_000)
   async scheduledSync() {
     if (process.env.NODE_ENV === 'production') return;
     const minutes = Number(process.env.USER_SYNC_INTERVAL_MINUTES ?? 10);
     const intervalMs = Math.max(1, minutes) * 60_000;
+    // console.log(intervalMs);
     const lastRunKey = `USER_SYNC_LAST_RUN`;
     const lastRun = (globalThis as any)[lastRunKey] as number | undefined;
     const now = Date.now();
     if (lastRun && now - lastRun < intervalMs) return;
     (globalThis as any)[lastRunKey] = now;
-
     await this.reconcileDbToFirebase();
     await this.reconcileFirebaseToDb();
   }
-
   async reconcileDbToFirebase() {
     const users = await this.prisma.user.findMany({
       where: { isActive: true, firebaseUid: { not: null } },
       select: { id: true, firebaseUid: true },
     });
-
     for (const user of users) {
       if (!user.firebaseUid) continue;
       try {
@@ -56,7 +52,6 @@ export class UserSyncService {
       }
     }
   }
-
   async reconcileFirebaseToDb() {
     let pageToken: string | undefined;
     do {

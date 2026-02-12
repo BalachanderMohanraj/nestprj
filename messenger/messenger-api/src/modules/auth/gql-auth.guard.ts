@@ -20,8 +20,7 @@ export class GqlAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const ctx = GqlExecutionContext.create(context);
-    const gql = ctx.getContext();
-    const req = gql.req;
+    const req = ctx.getContext().req;
 
     const authHeader: string | undefined = req.headers?.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
@@ -39,10 +38,7 @@ export class GqlAuthGuard implements CanActivate {
         where: { firebaseUid: decoded.uid }, // requires column in DB
       });
 
-      const operationName = gql?.body?.operationName as string | undefined;
-      const isEnableAccount = operationName === 'enableAccount';
-
-      if (!user || (!isEnableAccount && user.isActive === false)) {
+      if (!user || user.isActive === false) {
         throw new UnauthorizedException('User is inactive or deleted');
       }
 
