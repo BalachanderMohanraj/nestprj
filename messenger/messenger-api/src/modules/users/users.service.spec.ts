@@ -15,6 +15,12 @@ describe('UsersService (unit) - Firebase Auth transitional', () => {
       update: jest.fn(),
       findMany: jest.fn(),
     },
+    enableAccountToken: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    $transaction: jest.fn((ops: Promise<any>[]) => Promise.all(ops)),
   };
 
   // firebase-admin mock (only what you use)
@@ -40,6 +46,7 @@ describe('UsersService (unit) - Firebase Auth transitional', () => {
 
     process.env.APIKEY = 'AIzaFakeKeyForTests';
     process.env.ADMIN_API_KEY = 'admin-key';
+    process.env.ENABLE_ACCOUNT_TOKEN_SECRET = 'enable-secret';
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -718,6 +725,92 @@ describe('UsersService (unit) - Firebase Auth transitional', () => {
         dbUserId: 'u1',
         firebaseUid: 'fb_uid_1',
       });
+    });
+  });
+
+  // --------------------
+  // requestEnableAccount() + enableAccountWithToken()
+  // --------------------
+  describe('account activation', () => {
+    it('requestEnableAccount returns generic message for unknown user', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+
+      const res = await service.requestEnableAccount('missing@x.com');
+
+      expect(res).toBe(
+        'If the account exists, an account activation link was sent',
+      );
+      expect(prismaMock.enableAccountToken.create).not.toHaveBeenCalled();
+    });
+
+    it('requestEnableAccount creates one-time token and returns dev link for inactive user', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'a@b.com',
+        isActive: false,
+        firebaseUid: 'fb_uid_1',
+      });
+      prismaMock.enableAccountToken.create.mockResolvedValue({
+        jti: 'j1',
+      });
+
+      const res = await service.requestEnableAccount('a@b.com');
+
+      expect(prismaMock.enableAccountToken.create).toHaveBeenCalledTimes(1);
+      expect(res).toContain(
+        'If the account exists, an account activation link was sent',
+      );
+      expect(res).toContain('/activate-account?token=');
+    });
+
+    it('enableAccountWithToken enables Firebase and DB and consumes token', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'a@b.com',
+        isActive: false,
+        firebaseUid: 'fb_uid_1',
+      });
+      prismaMock.user.update.mockResolvedValue({
+        id: 'u1',
+        isActive: true,
+        tokenVersion: 5,
+      });
+      prismaMock.enableAccountToken.update.mockResolvedValue({
+        jti: 'token-jti',
+      });
+      prismaMock.$transaction.mockImplementationOnce((ops: Promise<any>[]) =>
+        Promise.all(ops),
+      );
+
+      const tokenWithKnownJti =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkVBVCJ9.eyJzdWIiOiJ1MSIsInVpZCI6ImZiX3VpZF8xIiwiZW1haWwiOiJhQGIuY29tIiwianRpIjoidG9rZW4tanRpIiwiZXhwIjo0MTAyNDQ0ODAwfQ.unszcYDkrIATwmGekrn8aysgTdqZdixw0n9ahCBsYV4';
+      prismaMock.enableAccountToken.findUnique.mockResolvedValue({
+        jti: 'token-jti',
+        userId: 'u1',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 5 * 60_000),
+      });
+      firebaseAuthMock.getUser.mockResolvedValue({ uid: 'fb_uid_1' });
+      firebaseAuthMock.updateUser.mockResolvedValue({});
+
+      const res = await service.enableAccountWithToken(tokenWithKnownJti);
+
+      expect(firebaseAuthMock.updateUser).toHaveBeenCalledWith('fb_uid_1', {
+        disabled: false,
+      });
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { isActive: true, tokenVersion: { increment: 1 } },
+      });
+      expect(prismaMock.enableAccountToken.update).toHaveBeenCalledWith({
+        where: { jti: 'token-jti' },
+        data: { usedAt: expect.any(Date) },
+      });
+      expect(firebaseAuthMock.setCustomUserClaims).toHaveBeenCalledWith(
+        'fb_uid_1',
+        { tv: 5 },
+      );
+      expect(res).toEqual({ id: 'u1', isActive: true, tokenVersion: 5 });
     });
   });
 

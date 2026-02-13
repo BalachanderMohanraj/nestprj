@@ -10,4 +10,4 @@ export class User {
   @Field() lastName!: string;
   @Field() mobileNumber!: string;
   @Field() createdAt!: Date;
-}  // data backend send to client
+} 

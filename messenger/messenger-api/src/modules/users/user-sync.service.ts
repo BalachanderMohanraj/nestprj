@@ -17,7 +17,6 @@ export class UserSyncService {
     if (process.env.NODE_ENV === 'production') return;
     const minutes = Number(process.env.USER_SYNC_INTERVAL_MINUTES ?? 10);
     const intervalMs = Math.max(1, minutes) * 60_000;
-    // console.log(intervalMs);
     const lastRunKey = `USER_SYNC_LAST_RUN`;
     const lastRun = (globalThis as any)[lastRunKey] as number | undefined;
     const now = Date.now();
@@ -45,7 +44,7 @@ export class UserSyncService {
             data: { isActive: false, tokenVersion: { increment: 1 } },
           });
         } else {
-          this.logger.error(
+          this.logger.warn(
             `Error checking Firebase user ${user.firebaseUid}: ${err?.message ?? err}`,
           );
         }

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, UnauthorizedException, Inject } from '@nestjs/common';
+import {  Injectable,  BadRequestException,  UnauthorizedException,  Inject,  InternalServerErrorException,} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterInput } from './dto/register.input';
 import { UpdateUserInput } from './dto/update-user.input';
@@ -7,6 +7,7 @@ import { SyncUserReport } from './dto/sync-user-report.model';
 import { LoginInput } from '../auth/dto/login.input';
 import { FIREBASE_ADMIN } from '../auth/firebase/firebase-admin.provider';
 import type * as admin from 'firebase-admin';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 
 type FirebaseSignInResponse = {
   idToken: string;
@@ -22,11 +23,12 @@ type FirebaseRefreshResponse = {
  
 @Injectable()
 export class UsersService {
+  private readonly enableAccountCooldownByEmail = new Map<string, number>();
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(FIREBASE_ADMIN) private readonly firebase: typeof admin,
   ) {}
-  // Used for the 'register' mutation (kept as-is for your DB)
   async register(data: RegisterInput) {
     if (data.password !== data.confirmPassword) {
       throw new BadRequestException('Passwords do not match');
@@ -52,7 +54,6 @@ let fbUser: admin.auth.UserRecord;
       password: data.password,
     });
   } catch (e: any) {
-    // If user already exists in Firebase, link it (optional but good for sync)
     if (e?.code === 'auth/email-already-exists') {
       fbUser = await this.firebase.auth().getUserByEmail(data.email);
     } else {
@@ -65,34 +66,23 @@ let fbUser: admin.auth.UserRecord;
       data: {
         ...userData,
         password: null,
-        firebaseUid: fbUser.uid,    // ✅ DB <-> Firebase link
+        firebaseUid: fbUser.uid,    
       },
     });
   } catch (err) {
-    // Rollback Firebase user if DB fails and we created a brand new one
-    // (If Firebase already existed, we should NOT delete it.)
-    // Best-effort cleanup:
     try {
-      // If DB failed after createUser, fbUser exists. But we don't know if it was created or fetched.
-      // You can track a boolean `createdInFirebase` to be precise; here is safe-ish cleanup:
       await this.firebase.auth().deleteUser(fbUser.uid);
     } catch {
-      // ignore rollback failure
     }
     throw err;
   }
 }
   async login(data: LoginInput) {
-    // 1) Authenticate via Firebase using email/password (backend-only)
     const signIn = await this.firebaseSignInWithPassword(data.email, data.password);
-    // console.log('APIKEY present?', !!process.env.APIKEY);
-    // 2) Find DB user by email (your system’s user record)
     const user = await this.prisma.user.findUnique({
       where: { email: signIn.email },
     });
     if (!user) {
-      // You can choose to auto-create here, but you said DB must be in sync.
-      // For safety: do not create silently.
       throw new UnauthorizedException(
         'User not found in DB. Please register first.',
       );
@@ -183,7 +173,6 @@ let fbUser: admin.auth.UserRecord;
       try {
         await this.firebase.auth().updateUser(uid, { password: currentPassword });
       } catch {
-        // best-effort rollback
       }
       throw err;
     }
@@ -200,6 +189,119 @@ let fbUser: admin.auth.UserRecord;
       await this.firebaseSendPasswordResetOobCode(email);
     }
     return link;
+  }
+  async requestEnableAccount(email: string) {
+    const genericMessage =
+      'If the account exists, an account activation link was sent';
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const now = Date.now();
+    const cooldownMs = Math.max(
+      1_000,
+      Number(process.env.ENABLE_ACCOUNT_REQUEST_COOLDOWN_MS ?? 60_000),
+    );
+    const lastRequestAt = this.enableAccountCooldownByEmail.get(normalizedEmail);
+    if (lastRequestAt && now - lastRequestAt < cooldownMs) {
+      return genericMessage;
+    }
+    this.enableAccountCooldownByEmail.set(normalizedEmail, now);
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+    if (!user || user.isActive || !user.firebaseUid) {
+      return genericMessage;
+    }
+
+    const ttlMinutes = Math.min(
+      15,
+      Math.max(10, Number(process.env.ENABLE_ACCOUNT_TOKEN_TTL_MINUTES ?? 15)),
+    );
+    const expiresAt = new Date(now + ttlMinutes * 60_000);
+    const jti = randomUUID();
+
+    await this.prisma.enableAccountToken.create({
+      data: {
+        jti,
+        userId: user.id,
+        expiresAt,
+      },
+    });
+
+    const token = this.signEnableAccountToken({
+      sub: user.id,
+      uid: user.firebaseUid,
+      email: user.email,
+      jti,
+      exp: Math.floor(expiresAt.getTime() / 1000),
+    });
+
+    const baseUrl =
+      process.env.ENABLE_ACCOUNT_LINK_BASE_URL?.trim() ||
+      'http://localhost:3001';
+    const link = `${baseUrl.replace(/\/+$/, '')}/api/activate-account?token=${encodeURIComponent(token)}`;
+
+    return `${genericMessage}. DEV_LINK: ${link}`;
+  }
+
+  async enableAccountWithToken(token: string) {
+    const payload = this.verifyEnableAccountToken(token);
+
+    const storedToken = await this.prisma.enableAccountToken.findUnique({
+      where: { jti: payload.jti },
+    });
+    if (
+      !storedToken ||
+      storedToken.userId !== payload.sub ||
+      storedToken.usedAt ||
+      storedToken.expiresAt.getTime() <= Date.now()
+    ) {
+      throw new UnauthorizedException('Invalid or expired activation token');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    if (!user.firebaseUid || user.firebaseUid !== payload.uid) {
+      throw new BadRequestException('Firebase user not linked');
+    }
+
+    try {
+      await this.firebase.auth().getUser(payload.uid);
+    } catch (err: any) {
+      if (err?.code === 'auth/user-not-found') {
+        throw new BadRequestException('Firebase user not found');
+      }
+      throw err;
+    }
+
+    await this.firebase.auth().updateUser(payload.uid, { disabled: false });
+    try {
+      const [updatedUser] = await this.prisma.$transaction([
+        this.prisma.user.update({
+          where: { id: user.id },
+          data: { isActive: true, tokenVersion: { increment: 1 } },
+        }),
+        this.prisma.enableAccountToken.update({
+          where: { jti: payload.jti },
+          data: { usedAt: new Date() },
+        }),
+      ]);
+
+      await this.firebase.auth().setCustomUserClaims(payload.uid, {
+        tv: updatedUser.tokenVersion,
+      });
+      return updatedUser;
+    } catch (err) {
+      try {
+        await this.firebase.auth().updateUser(payload.uid, { disabled: true });
+      } catch {
+      }
+      throw err;
+    }
   }
   async disableAccount(userId: string) {
     const user = await this.prisma.user.findUnique({
@@ -226,12 +328,10 @@ let fbUser: admin.auth.UserRecord;
       try {
         await this.firebase.auth().updateUser(uid, { disabled: false });
       } catch {
-        // best-effort rollback
       }
       throw err;
     }
   }
-
   async logout(userId: string): Promise<boolean> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -253,7 +353,6 @@ let fbUser: admin.auth.UserRecord;
     });
     return true;
   }
-
   async syncUser(uidOrEmail: string, adminKey: string): Promise<SyncUserReport> {
     const expected = process.env.ADMIN_API_KEY;
     if (!expected || adminKey !== expected) {
@@ -360,7 +459,6 @@ let fbUser: admin.auth.UserRecord;
     });
     const json: any = await res.json();
     if (!res.ok) {
-      // Common Firebase error payload: { error: { message: "INVALID_PASSWORD" } }
       const msg = json?.error?.message ?? 'Firebase sign-in failed';
       if (msg === 'USER_DISABLED') {
         throw new UnauthorizedException('User disabled');
@@ -415,4 +513,89 @@ let fbUser: admin.auth.UserRecord;
     }
   }
 
+  private getEnableAccountSecret(): string {
+    const secret = process.env.ENABLE_ACCOUNT_TOKEN_SECRET;
+    if (!secret) {
+      throw new InternalServerErrorException(
+        'ENABLE_ACCOUNT_TOKEN_SECRET is missing in env',
+      );
+    }
+    return secret;
+  }
+
+  private base64UrlEncode(input: string): string {
+    return Buffer.from(input, 'utf8').toString('base64url');
+  }
+
+  private base64UrlDecode(input: string): string {
+    return Buffer.from(input, 'base64url').toString('utf8');
+  }
+
+  private signEnableAccountToken(payload: {
+    sub: string;
+    uid: string;
+    email: string;
+    jti: string;
+    exp: number;
+  }): string {
+    const header = { alg: 'HS256', typ: 'EAT' };
+    const encodedHeader = this.base64UrlEncode(JSON.stringify(header));
+    const encodedPayload = this.base64UrlEncode(JSON.stringify(payload));
+    const unsigned = `${encodedHeader}.${encodedPayload}`;
+    const signature = createHmac('sha256', this.getEnableAccountSecret())
+      .update(unsigned)
+      .digest('base64url');
+    return `${unsigned}.${signature}`;
+  }
+
+  private verifyEnableAccountToken(token: string): {
+    sub: string;
+    uid: string;
+    email: string;
+    jti: string;
+    exp: number;
+  } {
+    const [encodedHeader, encodedPayload, signature] = token.split('.');
+    if (!encodedHeader || !encodedPayload || !signature) {
+      throw new UnauthorizedException('Invalid or expired activation token');
+    }
+
+    const unsigned = `${encodedHeader}.${encodedPayload}`;
+    const expectedSignature = createHmac('sha256', this.getEnableAccountSecret())
+      .update(unsigned)
+      .digest('base64url');
+
+    const signatureBuffer = Buffer.from(signature, 'utf8');
+    const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+    if (
+      signatureBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(signatureBuffer, expectedBuffer)
+    ) {
+      throw new UnauthorizedException('Invalid or expired activation token');
+    }
+
+    let payload: any;
+    try {
+      payload = JSON.parse(this.base64UrlDecode(encodedPayload));
+    } catch {
+      throw new UnauthorizedException('Invalid or expired activation token');
+    }
+
+    if (
+      !payload ||
+      typeof payload.sub !== 'string' ||
+      typeof payload.uid !== 'string' ||
+      typeof payload.email !== 'string' ||
+      typeof payload.jti !== 'string' ||
+      typeof payload.exp !== 'number'
+    ) {
+      throw new UnauthorizedException('Invalid or expired activation token');
+    }
+
+    if (payload.exp <= Math.floor(Date.now() / 1000)) {
+      throw new UnauthorizedException('Invalid or expired activation token');
+    }
+
+    return payload;
+  }
 }

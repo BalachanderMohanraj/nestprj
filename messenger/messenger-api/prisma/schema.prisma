@@ -25,11 +25,26 @@ model User {
   userName     String        @unique
   messagesSent Message[]
   participants Participant[]
+  enableAccountTokens EnableAccountToken[]
   firebaseUid String? @unique
 
   @@schema("local_dev")
   @@index([email])
   @@index([userName])
+}
+
+model EnableAccountToken {
+  id        String   @id @default(uuid())
+  jti       String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@schema("local_dev")
 }
 
 model Conversation {

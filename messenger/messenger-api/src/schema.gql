@@ -62,6 +62,8 @@ type Mutation {
   updateProfile(data: UpdateUserInput!): User!
   updatePassword(data: UpdatePasswordInput!): User!
   forgotPassword(email: String!, useOobCode: Boolean): String!
+  requestEnableAccount(email: String!): String!
+  enableAccountWithToken(token: String!): User!
   disableAccount: User!
   logout: Boolean!
   syncUser(uidOrEmail: String!, adminKey: String!): SyncUserReport!

@@ -14,6 +14,8 @@ describe('UsersResolver (unit)', () => {
     updateProfile: jest.fn(),
     updatePassword: jest.fn(),
     forgotPassword: jest.fn(),
+    requestEnableAccount: jest.fn(),
+    enableAccountWithToken: jest.fn(),
     disableAccount: jest.fn(),
     logout: jest.fn(),
     syncUser: jest.fn(),
@@ -129,6 +131,37 @@ describe('UsersResolver (unit)', () => {
       expect(usersServiceMock.forgotPassword).toHaveBeenCalledTimes(1);
       expect(usersServiceMock.forgotPassword).toHaveBeenCalledWith(email, true);
       expect(res).toBe(response);
+    });
+  });
+
+  describe('requestEnableAccount()', () => {
+    it('should call usersService.requestEnableAccount with email', async () => {
+      usersServiceMock.requestEnableAccount.mockResolvedValue(
+        'If the account exists, an account activation link was sent',
+      );
+
+      const res = await resolver.requestEnableAccount('a@b.com');
+
+      expect(usersServiceMock.requestEnableAccount).toHaveBeenCalledTimes(1);
+      expect(usersServiceMock.requestEnableAccount).toHaveBeenCalledWith(
+        'a@b.com',
+      );
+      expect(res).toContain('If the account exists');
+    });
+  });
+
+  describe('enableAccountWithToken()', () => {
+    it('should call usersService.enableAccountWithToken with token', async () => {
+      const updated = { id: 'u1', isActive: true };
+      usersServiceMock.enableAccountWithToken.mockResolvedValue(updated);
+
+      const res = await resolver.enableAccountWithToken('token-123');
+
+      expect(usersServiceMock.enableAccountWithToken).toHaveBeenCalledTimes(1);
+      expect(usersServiceMock.enableAccountWithToken).toHaveBeenCalledWith(
+        'token-123',
+      );
+      expect(res).toEqual(updated);
     });
   });
 

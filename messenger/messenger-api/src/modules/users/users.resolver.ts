@@ -60,6 +60,16 @@ export class UsersResolver {
     return this.usersService.forgotPassword(email, useOobCode);
   }
 
+  @Mutation(() => String)
+  async requestEnableAccount(@Args('email') email: string) {
+    return this.usersService.requestEnableAccount(email);
+  }
+
+  @Mutation(() => User)
+  async enableAccountWithToken(@Args('token') token: string) {
+    return this.usersService.enableAccountWithToken(token);
+  }
+
   @Mutation(() => User)
   @UseGuards(GqlAuthGuard)
   async disableAccount(@CurrentUser() user: any) {
